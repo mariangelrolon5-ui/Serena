@@ -1400,12 +1400,12 @@ if (AP.fondo.vivero) (function armarVivero(){
   const raiz = new THREE.Group(); escenario.add(raiz);
 
   /* ---- geometrías unitarias: largo 1 sobre +y ---- */
-  const forma = (fn) => { const s = new THREE.Shape(); fn(s); return new THREE.ShapeGeometry(s, 10); };
+  const forma = (fn) => { const s = new THREE.Shape(); fn(s); return new THREE.ShapeGeometry(s, 4); };
   const G = {
     hoja: forma(s => { s.moveTo(0, 0); s.bezierCurveTo(0.55, 0.15, 0.5, 0.7, 0, 1); s.bezierCurveTo(-0.5, 0.7, -0.55, 0.15, 0, 0); }),
     heli: forma(s => { s.moveTo(0, 0); s.quadraticCurveTo(0.2, 0.5, 0, 1); s.quadraticCurveTo(-0.2, 0.5, 0, 0); }),
     cor: forma(s => { s.moveTo(0, 0.12); s.bezierCurveTo(0.2, -0.12, 0.62, 0.05, 0.5, 0.45); s.bezierCurveTo(0.42, 0.7, 0.15, 0.85, 0, 1); s.bezierCurveTo(-0.15, 0.85, -0.42, 0.7, -0.5, 0.45); s.bezierCurveTo(-0.62, 0.05, -0.2, -0.12, 0, 0.12); }),
-    flor: (() => { const s = new THREE.Shape(); for (let i = 0; i <= 40; i++){ const a = i/40*Math.PI*2, r = 0.3 + 0.2*Math.abs(Math.cos(2.5*a)); if (i) s.lineTo(Math.cos(a)*r, Math.sin(a)*r); else s.moveTo(Math.cos(a)*r, Math.sin(a)*r); } return new THREE.ShapeGeometry(s); })(),
+    flor: (() => { const s = new THREE.Shape(); for (let i = 0; i <= 20; i++){ const a = i/20*Math.PI*2, r = 0.3 + 0.2*Math.abs(Math.cos(2.5*a)); if (i) s.lineTo(Math.cos(a)*r, Math.sin(a)*r); else s.moveTo(Math.cos(a)*r, Math.sin(a)*r); } return new THREE.ShapeGeometry(s); })(),
     centro: new THREE.SphereGeometry(0.5, 6, 4),
     tallo: (() => { const g = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true); g.translate(0, 0.5, 0); return g; })()
   };
@@ -2033,7 +2033,7 @@ async function iniciarConversacion(){
     estado.conv = await Conversation.startSession({
       agentId: CONFIG.agente,
       connectionType: 'websocket',
-      onConnect: () => { ponerModo('listening'); ui.hablar.setAttribute('aria-pressed', 'true'); ui.hablar.textContent = 'Terminar'; },
+      onConnect: () => { if (calidad.nivel < 2){ calidad.nivel = 2; renderer.setPixelRatio(calidad.escala[2]); try { encuadrar(); } catch {} luzClave.castShadow = false; } ponerModo('listening'); ui.hablar.setAttribute('aria-pressed', 'true'); ui.hablar.textContent = 'Terminar'; },
       onDisconnect: () => terminarUI(),
       onError: (e) => { console.error(e); subtitular(`La conexión con ${PERSONA.corto} se cortó.`, 'Revisá tu internet y volvé a tocar «Hablar».'); },
       onModeChange: ({ mode }) => ponerModo(mode === 'speaking' ? 'speaking' : 'listening'),
@@ -2268,8 +2268,23 @@ addEventListener('message', (e) => {
   if (m.tipo === 'callar'){ try { speechSynthesis.cancel(); } catch {} estado.demoHasta = 0; }
 });
 const reloj = new THREE.Clock();
+/* Calidad adaptable: si la figura va lenta, baja la resolución y las sombras para no trabar el audio de la conversación */
+const calidad = { nivel:0, ema:16, ult:0, malos:0, escala:[Math.min(devicePixelRatio, 2), 1.5, 1.25, 1, 0.8] };
+function calidadAuto(){
+  const ahora = performance.now(); if (!calidad.ult){ calidad.ult = ahora; return; }
+  const ms = Math.min(ahora - calidad.ult, 250); calidad.ult = ahora;
+  calidad.ema += (ms - calidad.ema)*0.05;
+  if (ahora < 3000 || document.hidden) return;
+  calidad.malos = calidad.ema > 30 ? calidad.malos + 1 : 0;
+  if (calidad.malos > 45 && calidad.nivel < calidad.escala.length - 1){
+    calidad.nivel++; calidad.malos = 0; calidad.ema = 16;
+    renderer.setPixelRatio(calidad.escala[calidad.nivel]); try { encuadrar(); } catch {}
+    if (calidad.nivel >= 2) luzClave.castShadow = false;
+  }
+}
 function animar(){
   const dt = Math.min(reloj.getDelta(), 0.05), t = reloj.elapsedTime;
+  calidadAuto();
   const a = leerVoz(t, dt);
   const hablando = estado.modo === 'speaking' || performance.now() < estado.demoHasta;
   const escuchando = estado.modo === 'listening';
